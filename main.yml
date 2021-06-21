@@ -62,6 +62,14 @@ spec:
                     value: Kasteel
                   - name: git-revision
                     value: gh-pages
+                  - name: relative-path-to-script
+                    value: "Python-Scripts/main.py"
+                  - name: input-file
+                    value: "/mnt/tmp/listings.csv"
+                  - name: output-file
+                    value: "/mnt/tmp/paris.csv"
+                  - name: args
+                    value: paris
 
             - name: save-to-minio
               dependencies: [python-process]
@@ -120,6 +128,10 @@ spec:
             - name: git-repo
             - name: project
             - name: git-revision
+            - name: relative-path-to-script
+            - name: input-file
+            - name: output-file
+            - name: args
           artifacts:
             # Check out the master branch of the argo repo and place it at /src
             # revision can be anything that git checkout accepts: branch, commit, tag, etc.
@@ -131,14 +143,14 @@ spec:
         container:
           image: melobenja/python-env
           env:
-            - name: CITY
-              value: "paris"
+            - name: ARGS
+              value: "{{inputs.parameters.args}}"
             - name: INPUT_FILE
-              value: "/mnt/tmp/listings.csv"
+              value: "{{inputs.parameters.input-file}}"
             - name: OUTPUT_FILE
-              value: "/mnt/tmp/paris.csv"
+              value: "{{inputs.parameters.output-file}}"
           command: [sh, -c]            
-          args: ["python3 /mnt/code/Kasteel/Python-Scripts/main.py"]
+          args: ["python3 /mnt/code/{{inputs.parameters.project}}/{{inputs.parameters.relative-path-to-script}}"]
           volumeMounts:
             - name: workflow-tmp
               mountPath: /mnt
