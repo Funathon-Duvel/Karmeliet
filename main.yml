@@ -141,7 +141,7 @@ spec:
                 repo: "{{inputs.parameters.git-repo}}"
                 revision: "{{inputs.parameters.git-revision}}"
         container:
-          image: melobenja/python-env
+          image: funathonduvel/chimay
           env:
             - name: ARGS
               value: "{{inputs.parameters.args}}"
