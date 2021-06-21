@@ -69,7 +69,7 @@ spec:
                   - name: output-file
                     value: "/mnt/tmp/paris.csv"
                   - name: args
-                    value: paris
+                    value: "75056"
 
             - name: save-to-minio
               dependencies: [python-process]
