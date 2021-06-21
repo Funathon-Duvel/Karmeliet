@@ -30,18 +30,46 @@ spec:
           tasks:
             - name: init-workdir
               template: init-workdir-wt
+
             - name: http-import-dataset
               dependencies: [init-workdir]
               template: http-import-dataset-wt
+              arguments:
+                parameters:
+                  - name: input-file-name
+                    value: listings.csv.gz
+                  - name: url
+                    value: https://minio.lab.sspcloud.fr/projet-funathon/diffusion/data/paris/2021-04-10/listings.csv.gz
+            
             - name: unzip-dataset
               dependencies: [http-import-dataset]
               template:  unzip-dataset-wt
+              arguments:
+                parameters:
+                  - name: input-file-name
+                    value: listings.csv.gz
+                  - name: output-file-name
+                    value: listings.csv
+            
             - name: python-process
               dependencies: [unzip-dataset]
               template: python-process-wt
+              arguments:
+                parameters:
+                  - name: git-repo
+                    value: "https://github.com/Funathon-Duvel/Kasteel.git"
+                  - name: project
+                    value: Kasteel
+                  - name: git-revision
+                    value: gh-pages
+
             - name: save-to-minio
               dependencies: [python-process]
               template: save-to-minio-wt
+              arguments:
+                parameters:
+                  - name: file-name-to-save
+                    value: paris.csv
 
         ####################################################################################################################
         #################### task template for implementing the logic of each task of the pipeline #########################
@@ -58,12 +86,15 @@ spec:
 
       - name: http-import-dataset-wt
         inputs:
+          parameters:
+            - name: input-file-name
+            - name: url
           artifacts:
             - name: input-data
-              path: /mnt/input/listings.csv.gz
+              path: "/mnt/input/{{inputs.parameters.input-file-name}}"
               mode: 0755
               http:
-                url: https://minio.lab.sspcloud.fr/projet-funathon/diffusion/data/paris/2021-04-10/listings.csv.gz
+                url: "{{inputs.parameters.url}}"
         container:
           image: alpine
           volumeMounts:
@@ -71,58 +102,55 @@ spec:
               mountPath: /mnt
 
       - name: unzip-dataset-wt
+        inputs:
+          parameters:
+            - name: input-file-name
+            - name: output-file-name
         container:
           image: alpine
           command: [sh, -c]
-          args: ["gunzip -c /mnt/input/listings.csv.gz > /mnt/tmp/listings.csv; ls -l /mnt"]
+          args: ["gunzip -c /mnt/input/{{inputs.parameters.input-file-name}} > /mnt/tmp/{{inputs.parameters.output-file-name}}; ls -l /mnt"]
           volumeMounts:
             - name: workflow-tmp
               mountPath: /mnt
       
       - name: python-process-wt
         inputs:
+          parameters:
+            - name: git-repo
+            - name: project
+            - name: git-revision
           artifacts:
             # Check out the master branch of the argo repo and place it at /src
             # revision can be anything that git checkout accepts: branch, commit, tag, etc.
             - name: code
-              path: /mnt/code/Kasteel
+              path: "/mnt/code/{{inputs.parameters.project}}"
               git:
-                repo: https://github.com/Funathon-Duvel/Kasteel.git
-                revision: "main"
+                repo: "{{inputs.parameters.git-repo}}"
+                revision: "{{inputs.parameters.git-revision}}"
         container:
-          image: alpine
-          command: [sh, -c]
+          image: melobenja/python-env
           env:
             - name: CITY
               value: "paris"
             - name: INPUT_FILE
               value: "/mnt/tmp/listings.csv"
             - name: OUTPUT_FILE
-              value: "/mnt/tmp/${CITY}.csv"            
-          args: ["echo ${OUTPUT_FILE} ; python3 /mnt/code/Kasteel/run.py > /mnt/logs/logFile-python-process-wt.log"]
+              value: "/mnt/tmp/paris.csv"
+          command: [sh, -c]            
+          args: ["python3 /mnt/code/Kasteel/Python-Scripts/main.py"]
           volumeMounts:
             - name: workflow-tmp
               mountPath: /mnt
-        outputs:
-          artifacts:
-            - name: listings
-              path: /mnt/logs/logFile-python-process-wt.log
-              s3:
-                endpoint: minio.lab.sspcloud.fr
-                bucket: argo-artifacts
-                key: funathon/logFile-python-process-wt.log
-                accessKeySecret:
-                  name: my-s3-credentials
-                  key: accessKey
-                secretKeySecret:
-                  name: my-s3-credentials
-                  key: secretKey
 
       - name: save-to-minio-wt
+        inputs:
+          parameters:
+            - name: file-name-to-save
         outputs:
           artifacts:
-            - name: listings
-              path: /mnt/tmp/paris.csv
+            - name: output-save
+              path: "/mnt/tmp/{{inputs.parameters.file-name-to-save}}"
               s3:
                 endpoint: minio.lab.sspcloud.fr
                 bucket: argo-artifacts
