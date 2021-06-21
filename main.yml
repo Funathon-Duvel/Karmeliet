@@ -1,0 +1,140 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: karmeliet-workflow
+  namespace: gr-funathon-duvel
+spec:
+    entrypoint: main
+
+    # Create a pvc for the workflow
+    volumeClaimTemplates:
+      - metadata:
+          name: workflow-tmp
+        spec:
+          # The CephFS storage class accept three access mode:
+          # ReadWriteOnce
+          # ReadOnlyMany
+          # ReadWriteMany
+          # But not the rook-ceph-block storage class. It only supports ReadWriteOnce
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+    templates:
+      #############################################################################################
+      #################### main template for planning dag of the pipeline #########################
+      #############################################################################################
+      - name: main
+        dag:
+          tasks:
+            - name: init-workdir
+              template: init-workdir-wt
+            - name: http-import-dataset
+              dependencies: [init-workdir]
+              template: http-import-dataset-wt
+            - name: unzip-dataset
+              dependencies: [http-import-dataset]
+              template:  unzip-dataset-wt
+            - name: python-process
+              dependencies: [unzip-dataset]
+              template: python-process-wt
+            - name: save-to-minio
+              dependencies: [python-process]
+              template: save-to-minio-wt
+
+        ####################################################################################################################
+        #################### task template for implementing the logic of each task of the pipeline #########################
+        ####################################################################################################################
+
+      - name: init-workdir-wt
+        container:
+          image: alpine
+          command: [sh, -c]
+          args: ["mkdir -p /mnt/tmp /mnt/input /mnt/code /mnt/logs; ls -l /mnt"]
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
+
+      - name: http-import-dataset-wt
+        inputs:
+          artifacts:
+            - name: input-data
+              path: /mnt/input/listings.csv.gz
+              mode: 0755
+              http:
+                url: https://minio.lab.sspcloud.fr/projet-funathon/diffusion/data/paris/2021-04-10/listings.csv.gz
+        container:
+          image: alpine
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
+
+      - name: unzip-dataset-wt
+        container:
+          image: alpine
+          command: [sh, -c]
+          args: ["gunzip -c /mnt/input/listings.csv.gz > /mnt/tmp/listings.csv; ls -l /mnt"]
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
+      
+      - name: python-process-wt
+        inputs:
+          artifacts:
+            # Check out the master branch of the argo repo and place it at /src
+            # revision can be anything that git checkout accepts: branch, commit, tag, etc.
+            - name: code
+              path: /mnt/code/Kasteel
+              git:
+                repo: https://github.com/Funathon-Duvel/Kasteel.git
+                revision: "main"
+        container:
+          image: alpine
+          command: [sh, -c]
+          env:
+            - name: CITY
+              value: "paris"
+            - name: INPUT_FILE
+              value: "/mnt/tmp/listings.csv"
+            - name: OUTPUT_FILE
+              value: "/mnt/tmp/${CITY}.csv"            
+          args: ["echo ${OUTPUT_FILE} ; python3 /mnt/code/Kasteel/run.py > /mnt/logs/logFile-python-process-wt.log"]
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
+        outputs:
+          artifacts:
+            - name: listings
+              path: /mnt/logs/logFile-python-process-wt.log
+              s3:
+                endpoint: minio.lab.sspcloud.fr
+                bucket: argo-artifacts
+                key: funathon/logFile-python-process-wt.log
+                accessKeySecret:
+                  name: my-s3-credentials
+                  key: accessKey
+                secretKeySecret:
+                  name: my-s3-credentials
+                  key: secretKey
+
+      - name: save-to-minio-wt
+        outputs:
+          artifacts:
+            - name: listings
+              path: /mnt/tmp/paris.csv
+              s3:
+                endpoint: minio.lab.sspcloud.fr
+                bucket: argo-artifacts
+                key: funathon/paris.csv
+                accessKeySecret:
+                  name: my-s3-credentials
+                  key: accessKey
+                secretKeySecret:
+                  name: my-s3-credentials
+                  key: secretKey
+        container:
+          image: alpine
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
