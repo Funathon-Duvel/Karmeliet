@@ -1,0 +1,103 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: karmeliet-workflow-transform
+  namespace: gr-funathon-duvel
+spec:
+    entrypoint: main
+    
+    # Create a pvc for the workflow
+    volumeClaimTemplates:
+      - metadata:
+          name: workflow-tmp
+        spec:
+          # The CephFS storage class accept three access mode:
+          # ReadWriteOnce
+          # ReadOnlyMany
+          # ReadWriteMany
+          # But not the rook-ceph-block storage class. It only supports ReadWriteOnce
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+    templates:
+      - name: main
+        dag:
+          tasks:
+            - name: init-workdir
+              template: init-workdir-wt
+
+            - name: import-from-minio
+              template: import-from-minio-wt
+              arguments:
+                parameters:
+                  - name: file-name-to-import
+                    value: "changeme.csv"
+
+            - name: java-process-csv-to-ttl
+              template: java-process-wt
+              arguments:
+                parameters:
+                  - name: input-file
+                    value: "changeme.csv"
+                  - name: output-file
+                    value: "changeme.ttl"
+                  - name: args #Optionnal env for java process
+                    value: "changeme"
+                  - name: docker-image
+                    value: "changeme"
+
+      - name: init-workdir-wt
+        container:
+          image: alpine
+          command: [sh, -c]
+          args: ["mkdir -p /mnt/tmp /mnt/input /mnt/code /mnt/logs; ls -l /mnt"]
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
+      
+      - name: import-from-minio
+        inputs:
+          parameters:
+            - name: file-name-to-import
+          artifacts:
+            - name: input-file
+              path: "/mnt/input/{{inputs.parameters.file-name-to-import}}"
+              s3:
+                endpoint: minio.lab.sspcloud.fr
+                bucket: argo-artifacts
+                key: "funathon/{{inputs.parameters.file-name-to-import}}"
+                accessKeySecret:
+                  name: my-s3-credentials
+                  key: accessKey
+                secretKeySecret:
+                  name: my-s3-credentials
+                  key: secretKey
+        container:
+          image: alpine
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
+
+      - name: java-process-wt
+        inputs:
+          parameters:
+            - name: input-file
+            - name: output-file
+            - name: args
+            - name: docker-image
+        container:
+          image: "{{inputs.parameters.docker-image}}"
+          env:
+            - name: INPUT_FILE
+              value: "{{inputs.parameters.input-file}}"
+            - name: OUTPUT_FILE
+              value: "{{inputs.parameters.output-file}}"
+            - name: ARGS
+              value: "{{inputs.parameters.args}}"
+          command: [sh, -c]            
+          args: ["java -jar app.jar"]
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
