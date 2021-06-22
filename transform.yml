@@ -14,12 +14,10 @@ spec:
         resources:
           requests:
             storage: 10Gi
-  
 
 #############################################################################################
 #################### main template : process 3 files  #######################################
 #############################################################################################
-
 
   templates:
     - name: main
@@ -31,12 +29,12 @@ spec:
               parameters:
                 - name: zone
                   value: paris
-          # - name: process-file-bordeaux
-          #   template: process-file-wt
-          #   arguments:
-          #     parameters:
-          #       - name: zone
-          #         value: bordeaux
+          - name: process-file-bordeaux
+            template: process-file-wt
+            arguments:
+              parameters:
+                - name: zone
+                  value: bordeaux
           - name: process-file-lyon
             template: process-file-wt
             arguments:
@@ -47,7 +45,6 @@ spec:
 #############################################################################################
 #################### template for process one file  #########################################
 #############################################################################################
-
 
     - name: process-file-wt
       inputs:
@@ -90,11 +87,11 @@ spec:
               - name: docker-image
                 value: funathonduvel/trolls
 
+
    ####################################################################################################################
    #################### template for implementing the logic of each step of the pipeline  #############################
    ####################################################################################################################
-     
-    
+  
     - name: init-workdir-wt
       container:
         image: alpine
