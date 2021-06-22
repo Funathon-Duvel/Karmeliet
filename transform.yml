@@ -60,13 +60,12 @@ spec:
       - - name: import-from-minio
           template: import-from-minio-wt
           arguments:
-          parameters:
-            - name: file-name-to-import
-              value: "{{inputs.parameters.zone}.csv"
+            parameters:
+              - name: file-name-to-import
+                value: "{{inputs.parameters.zone}.csv"
 
       - - name: java-process-csv-to-ttl
           template: java-process-wt
-          dependencies: [import-from-minio]
           arguments:
             parameters:
               - name: input-file
@@ -80,7 +79,6 @@ spec:
 
       - - name: java-process-push-ttl-to-repo
           template: java-process-wt
-          dependencies: [java-process-csv-to-ttl]
           arguments:
             parameters:
               - name: input-file
