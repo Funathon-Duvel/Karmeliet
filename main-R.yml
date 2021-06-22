@@ -77,7 +77,7 @@ spec:
               arguments:
                 parameters:
                   - name: file-name-to-save
-                    value: paris.csv
+                    value: paris-r.csv
 
         ####################################################################################################################
         #################### task template for implementing the logic of each task of the pipeline #########################
