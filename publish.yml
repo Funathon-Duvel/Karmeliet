@@ -1,0 +1,151 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: karmeliet-workflow-transform
+  namespace: gr-funathon-duvel
+spec:
+  entrypoint: main
+  volumeClaimTemplates:
+    - metadata:
+        name: workflow-tmp
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+
+#############################################################################################
+#################### main template : process 3 files  #######################################
+#############################################################################################
+
+  templates:
+    - name: main
+      dag:
+       tasks:
+          - name: process-file-paris
+            template: process-file-wt
+            arguments:
+              parameters:
+                - name: zone
+                  value: paris
+          - name: process-file-bordeaux
+            template: process-file-wt
+            arguments:
+              parameters:
+                - name: zone
+                  value: bordeaux
+          - name: process-file-lyon
+            template: process-file-wt
+            arguments:
+              parameters:
+                - name: zone
+                  value: lyon
+
+#############################################################################################
+#################### template for process one file  #########################################
+#############################################################################################
+
+    - name: process-file-wt
+      inputs:
+        parameters:
+          - name: zone
+      steps:
+      - - name: init-workdir
+          template: init-workdir-wt
+
+      - - name: import-from-minio
+          template: import-from-minio-wt
+          arguments:
+            parameters:
+              - name: file-name-to-import
+                value: "{{inputs.parameters.zone}}.csv"
+
+      - - name: java-process-csv-to-ttl
+          template: java-process-wt
+          arguments:
+            parameters:
+              - name: input-file
+                value: "mnt/input/{{inputs.parameters.zone}}.csv"
+              - name: output-file
+                value: "mnt/tmp/{{inputs.parameters.zone}}.ttl"
+              - name: args
+                value: ''
+              - name: docker-image
+                value: funathonduvel/troismonts
+
+      - - name: java-process-push-ttl-to-repo
+          template: java-process-wt
+          arguments:
+            parameters:
+              - name: input-file
+                value: "mnt/tmp/{{inputs.parameters.zone}}.ttl"
+              - name: output-file
+                value: ''
+              - name: args
+                value: 'http://graphdb.linked-open-statistics.org|funathon-{{inputs.parameters.zone}}'
+              - name: docker-image
+                value: funathonduvel/trolls
+
+
+   ####################################################################################################################
+   #################### template for implementing the logic of each step of the pipeline  #############################
+   ####################################################################################################################
+  
+    - name: init-workdir-wt
+      container:
+        image: alpine
+        command:
+          - sh
+          - '-c'
+        args:
+          - mkdir -p /mnt/tmp /mnt/input /mnt/code /mnt/logs; ls -l /mnt
+        volumeMounts:
+          - name: workflow-tmp
+            mountPath: /mnt
+    - name: import-from-minio-wt
+      inputs:
+        parameters:
+          - name: file-name-to-import
+        artifacts:
+          - name: input-file
+            path: '/mnt/input/{{inputs.parameters.file-name-to-import}}'
+            s3:
+              endpoint: minio.lab.sspcloud.fr
+              bucket: argo-artifacts
+              key: 'funathon/{{inputs.parameters.file-name-to-import}}'
+              accessKeySecret:
+                name: my-s3-credentials
+                key: accessKey
+              secretKeySecret:
+                name: my-s3-credentials
+                key: secretKey
+      container:
+        image: alpine
+        volumeMounts:
+          - name: workflow-tmp
+            mountPath: /mnt
+    - name: java-process-wt
+      inputs:
+        parameters:
+          - name: input-file
+          - name: output-file
+          - name: args
+          - name: docker-image
+      container:
+        image: '{{inputs.parameters.docker-image}}'
+        env:
+          - name: INPUT_FILE
+            value: '{{inputs.parameters.input-file}}'
+          - name: OUTPUT_FILE
+            value: '{{inputs.parameters.output-file}}'
+          - name: ARGS
+            value: '{{inputs.parameters.args}}'
+        command:
+          - sh
+          - '-c'
+        args:
+          - java -jar app.jar
+        volumeMounts:
+          - name: workflow-tmp
+            mountPath: /mnt

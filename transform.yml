@@ -1,151 +1,220 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: karmeliet-workflow-transform
+  generateName: karmeliet-workflow-data-cleaning
   namespace: gr-funathon-duvel
 spec:
-  entrypoint: main
-  volumeClaimTemplates:
-    - metadata:
-        name: workflow-tmp
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 10Gi
+    entrypoint: main
 
-#############################################################################################
-#################### main template : process 3 files  #######################################
-#############################################################################################
+    # Create a pvc for the workflow
+    volumeClaimTemplates:
+      - metadata:
+          name: workflow-tmp
+        spec:
+          # The CephFS storage class accept three access mode:
+          # ReadWriteOnce
+          # ReadOnlyMany
+          # ReadWriteMany
+          # But not the rook-ceph-block storage class. It only supports ReadWriteOnce
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
 
-  templates:
-    - name: main
-      dag:
-       tasks:
-          - name: process-file-paris
-            template: process-file-wt
+    #############################################################################################
+    #################### main template : process 3 files  #######################################
+    #############################################################################################
+
+    templates:
+      - name: main
+        dag:
+          tasks:
+            - name: process-file-paris
+              template: process-file-wt
+              arguments:
+                parameters:
+                  - name: url
+                    value: "http://data.insideairbnb.com/france/ile-de-france/paris/2021-04-10/data/listings.csv.gz"
+                  - name: zone
+                    value: paris
+                  - name: codeCom
+                    value: "75056"
+            - name: process-file-bordeaux
+              template: process-file-wt
+              arguments:
+                parameters:
+                  - name: url
+                    value: "http://data.insideairbnb.com/france/nouvelle-aquitaine/bordeaux/2021-04-18/data/listings.csv.gz"
+                  - name: zone
+                    value: bordeaux
+                  - name: codeCom
+                    value: "33063"
+            - name: process-file-lyon
+              template: process-file-wt
+              arguments:
+                parameters:
+                  - name: url
+                    value: "http://data.insideairbnb.com/france/auvergne-rhone-alpes/lyon/2021-04-18/data/listings.csv.gz"
+                  - name: zone
+                    value: lyon
+                  - name: codeCom
+                    value: "69123"
+      
+
+      #############################################################################################
+      #################### template for process one file  #########################################
+      #############################################################################################
+
+      - name: process-file-wt
+        inputs:
+          parameters:
+            - name: url
+            - name: zone
+            - name: codeCom
+        steps:
+        - - name: init-workdir
+            template: init-workdir-wt
+
+        - - name: http-import-dataset
+            template: http-import-dataset-wt
             arguments:
               parameters:
-                - name: zone
-                  value: paris
-          - name: process-file-bordeaux
-            template: process-file-wt
+                - name: input-file-name
+                  value: "listings-{{inputs.parameters.zone}}.csv.gz"
+                - name: url
+                  value: "{{inputs.parameters.url}}"
+            
+        - - name: unzip-dataset
+            template:  unzip-dataset-wt
             arguments:
               parameters:
-                - name: zone
-                  value: bordeaux
-          - name: process-file-lyon
-            template: process-file-wt
+                - name: input-file-name
+                  value: "listings-{{inputs.parameters.zone}}.csv.gz"
+                - name: output-file-name
+                  value: "listings-{{inputs.parameters.zone}}.csv"
+            
+        - - name: python-process
+            template: python-process-wt
             arguments:
               parameters:
-                - name: zone
-                  value: lyon
+                - name: git-repo
+                  value: "https://github.com/Funathon-Duvel/Kasteel.git"
+                - name: git-revision
+                  value: gh-pages
+                - name: project
+                  value: Kasteel
+                - name: relative-path-to-script
+                  value: "Python-Scripts/main.py"
+                - name: input-file
+                  value: "/mnt/tmp/listings-{{inputs.parameters.zone}}.csv"
+                - name: output-file
+                  value: "/mnt/tmp/{{inputs.parameters.zone}}.csv"
+                - name: args #Optionnal env for python process, here codeCom value
+                  value: "{{inputs.parameters.codeCom}}"
 
-#############################################################################################
-#################### template for process one file  #########################################
-#############################################################################################
+        - - name: save-to-minio
+            template: save-to-minio-wt
+            arguments:
+              parameters:
+                - name: file-name-to-save
+                  value: "{{inputs.parameters.zone}}.csv"
 
-    - name: process-file-wt
-      inputs:
-        parameters:
-          - name: zone
-      steps:
-      - - name: init-workdir
-          template: init-workdir-wt
+      ####################################################################################################################
+      #################### template for implementing the logic of each step of the pipeline  #############################
+      ####################################################################################################################
 
-      - - name: import-from-minio
-          template: import-from-minio-wt
-          arguments:
-            parameters:
-              - name: file-name-to-import
-                value: "{{inputs.parameters.zone}}.csv"
+      - name: init-workdir-wt
+        container:
+          image: alpine
+          command: [sh, -c]
+          args: ["mkdir -p /mnt/tmp /mnt/input /mnt/code /mnt/logs; ls -l /mnt"]
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
 
-      - - name: java-process-csv-to-ttl
-          template: java-process-wt
-          arguments:
-            parameters:
-              - name: input-file
-                value: "mnt/input/{{inputs.parameters.zone}}.csv"
-              - name: output-file
-                value: "mnt/tmp/{{inputs.parameters.zone}}.ttl"
-              - name: args
-                value: ''
-              - name: docker-image
-                value: funathonduvel/troismonts
+      - name: http-import-dataset-wt
+        inputs:
+          parameters:
+            - name: input-file-name
+            - name: url
+          artifacts:
+            - name: input-data
+              path: "/mnt/input/{{inputs.parameters.input-file-name}}"
+              mode: 0755
+              http:
+                url: "{{inputs.parameters.url}}"
+        container:
+          image: alpine
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
 
-      - - name: java-process-push-ttl-to-repo
-          template: java-process-wt
-          arguments:
-            parameters:
-              - name: input-file
-                value: "mnt/tmp/{{inputs.parameters.zone}}.ttl"
-              - name: output-file
-                value: ''
-              - name: args
-                value: 'http://graphdb.linked-open-statistics.org|funathon-{{inputs.parameters.zone}}'
-              - name: docker-image
-                value: funathonduvel/trolls
+      - name: unzip-dataset-wt
+        inputs:
+          parameters:
+            - name: input-file-name
+            - name: output-file-name
+        container:
+          image: alpine
+          command: [sh, -c]
+          args: ["gunzip -c /mnt/input/{{inputs.parameters.input-file-name}} > /mnt/tmp/{{inputs.parameters.output-file-name}}; ls -l /mnt"]
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
+      
+      - name: python-process-wt
+        inputs:
+          parameters:
+            - name: git-repo
+            - name: git-revision
+            - name: project
+            - name: relative-path-to-script
+            - name: input-file
+            - name: output-file
+            - name: args
+          artifacts:
+            # Check out the master branch of the argo repo and place it at /src
+            # revision can be anything that git checkout accepts: branch, commit, tag, etc.
+            - name: code
+              path: "/mnt/code/{{inputs.parameters.args}}/{{inputs.parameters.project}}"
+              git:
+                repo: "{{inputs.parameters.git-repo}}"
+                revision: "{{inputs.parameters.git-revision}}"
+        container:
+          image: funathonduvel/chimay
+          env:
+            - name: INPUT_FILE
+              value: "{{inputs.parameters.input-file}}"
+            - name: OUTPUT_FILE
+              value: "{{inputs.parameters.output-file}}"
+            - name: ARGS
+              value: "{{inputs.parameters.args}}"
+          command: [sh, -c]            
+          args: ["python3 /mnt/code/{{inputs.parameters.args}}/{{inputs.parameters.project}}/{{inputs.parameters.relative-path-to-script}}"]
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
 
-
-   ####################################################################################################################
-   #################### template for implementing the logic of each step of the pipeline  #############################
-   ####################################################################################################################
-  
-    - name: init-workdir-wt
-      container:
-        image: alpine
-        command:
-          - sh
-          - '-c'
-        args:
-          - mkdir -p /mnt/tmp /mnt/input /mnt/code /mnt/logs; ls -l /mnt
-        volumeMounts:
-          - name: workflow-tmp
-            mountPath: /mnt
-    - name: import-from-minio-wt
-      inputs:
-        parameters:
-          - name: file-name-to-import
-        artifacts:
-          - name: input-file
-            path: '/mnt/input/{{inputs.parameters.file-name-to-import}}'
-            s3:
-              endpoint: minio.lab.sspcloud.fr
-              bucket: argo-artifacts
-              key: 'funathon/{{inputs.parameters.file-name-to-import}}'
-              accessKeySecret:
-                name: my-s3-credentials
-                key: accessKey
-              secretKeySecret:
-                name: my-s3-credentials
-                key: secretKey
-      container:
-        image: alpine
-        volumeMounts:
-          - name: workflow-tmp
-            mountPath: /mnt
-    - name: java-process-wt
-      inputs:
-        parameters:
-          - name: input-file
-          - name: output-file
-          - name: args
-          - name: docker-image
-      container:
-        image: '{{inputs.parameters.docker-image}}'
-        env:
-          - name: INPUT_FILE
-            value: '{{inputs.parameters.input-file}}'
-          - name: OUTPUT_FILE
-            value: '{{inputs.parameters.output-file}}'
-          - name: ARGS
-            value: '{{inputs.parameters.args}}'
-        command:
-          - sh
-          - '-c'
-        args:
-          - java -jar app.jar
-        volumeMounts:
-          - name: workflow-tmp
-            mountPath: /mnt
+      - name: save-to-minio-wt
+        inputs:
+          parameters:
+            - name: file-name-to-save
+        outputs:
+          artifacts:
+            - name: output-save
+              path: "/mnt/tmp/{{inputs.parameters.file-name-to-save}}"
+              s3:
+                endpoint: minio.lab.sspcloud.fr
+                bucket: argo-artifacts
+                key: "funathon/{{inputs.parameters.file-name-to-save}}"
+                accessKeySecret:
+                  name: my-s3-credentials
+                  key: accessKey
+                secretKeySecret:
+                  name: my-s3-credentials
+                  key: secretKey
+        container:
+          image: alpine
+          volumeMounts:
+            - name: workflow-tmp
+              mountPath: /mnt
