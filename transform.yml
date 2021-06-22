@@ -14,45 +14,89 @@ spec:
         resources:
           requests:
             storage: 10Gi
+  
+
+#############################################################################################
+#################### main template : process 3 files  #######################################
+#############################################################################################
+
+
   templates:
     - name: main
       dag:
-        tasks:
-          - name: init-workdir
-            template: init-workdir-wt
-          - name: import-from-minio
-            dependencies: [init-workdir]
-            template: import-from-minio-wt
+       tasks:
+          - name: process-file-paris
+            template: process-file-wt
             arguments:
               parameters:
-                - name: file-name-to-import
-                  value: paris.csv
-          - name: java-process-csv-to-ttl
-            template: java-process-wt
-            dependencies: [import-from-minio]
+                - name: zone
+                  value: paris
+          # - name: process-file-bordeaux
+          #   template: process-file-wt
+          #   arguments:
+          #     parameters:
+          #       - name: zone
+          #         value: bordeaux
+          - name: process-file-lyon
+            template: process-file-wt
             arguments:
               parameters:
-                - name: input-file
-                  value: mnt/input/paris.csv
-                - name: output-file
-                  value: mnt/tmp/paris.ttl
-                - name: args
-                  value: ''
-                - name: docker-image
-                  value: funathonduvel/troismonts
-          - name: java-process-push-ttl-to-repo
-            template: java-process-wt
-            dependencies: [java-process-csv-to-ttl]
-            arguments:
-              parameters:
-                - name: input-file
-                  value: mnt/tmp/paris.ttl
-                - name: output-file
-                  value: ''
-                - name: args
-                  value: 'http://graphdb.linked-open-statistics.org|funathon-paris'
-                - name: docker-image
-                  value: funathonduvel/trolls
+                - name: zone
+                  value: lyon
+
+#############################################################################################
+#################### template for process one file  #########################################
+#############################################################################################
+
+
+    - name: process-file-wt
+      inputs:
+        parameters:
+          - name: zone
+      steps:
+      - - name: init-workdir
+          template: init-workdir-wt
+
+      - - name: import-from-minio
+          template: import-from-minio-wt
+          arguments:
+          parameters:
+            - name: file-name-to-import
+              value: "{{inputs.parameters.zone}.csv"
+
+      - - name: java-process-csv-to-ttl
+          template: java-process-wt
+          dependencies: [import-from-minio]
+          arguments:
+            parameters:
+              - name: input-file
+                value: "mnt/input/{{inputs.parameters.zone}.csv"
+              - name: output-file
+                value: "mnt/tmp/{{inputs.parameters.zone}.ttl"
+              - name: args
+                value: ''
+              - name: docker-image
+                value: funathonduvel/troismonts
+
+      - - name: java-process-push-ttl-to-repo
+          template: java-process-wt
+          dependencies: [java-process-csv-to-ttl]
+          arguments:
+            parameters:
+              - name: input-file
+                value: "mnt/tmp/{{inputs.parameters.zone}.ttl"
+              - name: output-file
+                value: ''
+              - name: args
+                value: 'http://graphdb.linked-open-statistics.org|funathon-{{inputs.parameters.zone}}'
+              - name: docker-image
+                value: funathonduvel/trolls
+
+   ####################################################################################################################
+   #################### template for implementing the logic of each step of the pipeline  #############################
+   ####################################################################################################################
+     
+    
     - name: init-workdir-wt
       container:
         image: alpine
