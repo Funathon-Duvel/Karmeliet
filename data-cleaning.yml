@@ -64,6 +64,7 @@ spec:
       #############################################################################################
       #################### template for process one file  #########################################
       #############################################################################################
+
       - name: process-file-wt
         inputs:
           parameters:
@@ -205,7 +206,7 @@ spec:
               s3:
                 endpoint: minio.lab.sspcloud.fr
                 bucket: argo-artifacts
-                key: funathon/{{inputs.parameters.file-name-to-save}}
+                key: "funathon/{{inputs.parameters.file-name-to-save}}"
                 accessKeySecret:
                   name: my-s3-credentials
                   key: accessKey
