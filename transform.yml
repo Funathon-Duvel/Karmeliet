@@ -62,16 +62,16 @@ spec:
           arguments:
             parameters:
               - name: file-name-to-import
-                value: "{{inputs.parameters.zone}.csv"
+                value: "{{inputs.parameters.zone}}.csv"
 
       - - name: java-process-csv-to-ttl
           template: java-process-wt
           arguments:
             parameters:
               - name: input-file
-                value: "mnt/input/{{inputs.parameters.zone}.csv"
+                value: "mnt/input/{{inputs.parameters.zone}}.csv"
               - name: output-file
-                value: "mnt/tmp/{{inputs.parameters.zone}.ttl"
+                value: "mnt/tmp/{{inputs.parameters.zone}}.ttl"
               - name: args
                 value: ''
               - name: docker-image
@@ -82,7 +82,7 @@ spec:
           arguments:
             parameters:
               - name: input-file
-                value: "mnt/tmp/{{inputs.parameters.zone}.ttl"
+                value: "mnt/tmp/{{inputs.parameters.zone}}.ttl"
               - name: output-file
                 value: ''
               - name: args
