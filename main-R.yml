@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: karmeliet-workflow-R
+  generateName: karmeliet-workflow-r
   namespace: gr-funathon-duvel
 spec:
     entrypoint: main
@@ -141,7 +141,7 @@ spec:
                 repo: "{{inputs.parameters.git-repo}}"
                 revision: "{{inputs.parameters.git-revision}}"
         container:
-          image: funathonduvel/chimay
+          image: funathonduvel/kwak
           env:
             - name: ARGS
               value: "{{inputs.parameters.args}}"
