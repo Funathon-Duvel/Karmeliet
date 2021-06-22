@@ -22,66 +22,101 @@ spec:
               storage: 10Gi
 
     templates:
-      #############################################################################################
-      #################### main template for planning dag of the pipeline #########################
-      #############################################################################################
       - name: main
         dag:
           tasks:
-            - name: init-workdir
-              template: init-workdir-wt
-
-            - name: http-import-dataset
-              dependencies: [init-workdir]
-              template: http-import-dataset-wt
+            - name: process-file-paris
+              template: process-file-wt
               arguments:
                 parameters:
-                  - name: input-file-name
-                    value: listings.csv.gz
                   - name: url
-                    value: https://minio.lab.sspcloud.fr/projet-funathon/diffusion/data/paris/2021-04-10/listings.csv.gz
-            
-            - name: unzip-dataset
-              dependencies: [http-import-dataset]
-              template:  unzip-dataset-wt
-              arguments:
-                parameters:
-                  - name: input-file-name
-                    value: listings.csv.gz
-                  - name: output-file-name
-                    value: listings.csv
-            
-            - name: python-process
-              dependencies: [unzip-dataset]
-              template: python-process-wt
-              arguments:
-                parameters:
-                  - name: git-repo
-                    value: "https://github.com/Funathon-Duvel/Kasteel.git"
-                  - name: project
-                    value: Kasteel
-                  - name: git-revision
-                    value: gh-pages
-                  - name: relative-path-to-script
-                    value: "Python-Scripts/main.py"
-                  - name: input-file
-                    value: "/mnt/tmp/listings.csv"
-                  - name: output-file
-                    value: "/mnt/tmp/paris.csv"
-                  - name: args
+                    value: "http://data.insideairbnb.com/france/ile-de-france/paris/2021-04-10/data/listings.csv.gz"
+                  - name: zone
+                    value: paris
+                  - name: codeCom
                     value: "75056"
-
-            - name: save-to-minio
-              dependencies: [python-process]
-              template: save-to-minio-wt
+            - name: process-file-bordeaux
+              template: process-file-wt
               arguments:
                 parameters:
-                  - name: file-name-to-save
-                    value: paris.csv
+                  - name: url
+                    value: "http://data.insideairbnb.com/france/nouvelle-aquitaine/bordeaux/2021-04-18/data/listings.csv.gz"
+                  - name: zone
+                    value: bordeaux
+                  - name: codeCom
+                    value: "33063"
+            - name: process-file-lyon
+              template: process-file-wt
+              arguments:
+                parameters:
+                  - name: url
+                    value: "http://data.insideairbnb.com/france/auvergne-rhone-alpes/lyon/2021-04-18/data/listings.csv.gz"
+                  - name: zone
+                    value: lyon
+                  - name: codeCom
+                    value: "69123"
+      
 
-        ####################################################################################################################
-        #################### task template for implementing the logic of each task of the pipeline #########################
-        ####################################################################################################################
+      #############################################################################################
+      #################### main template for planning dag of the pipeline #########################
+      #############################################################################################
+      - name: process-file-wt
+        inputs:
+          parameters:
+            - name: zone
+            - name: codeCom
+            - name: url
+        steps:
+        - - name: init-workdir
+            template: init-workdir-wt
+
+        - - name: http-import-dataset
+            template: http-import-dataset-wt
+            arguments:
+              parameters:
+                - name: input-file-name
+                  value: "listings-{{inputs.parameters.zone}}.csv.gz"
+                - name: url
+                  value: "{{inputs.parameters.url}}"
+            
+        - - name: unzip-dataset
+            template:  unzip-dataset-wt
+            arguments:
+              parameters:
+                - name: input-file-name
+                  value: "listings-{{inputs.parameters.zone}}.csv.gz"
+                - name: output-file-name
+                  value: "listings-{{inputs.parameters.zone}}.csv"
+            
+        - - name: python-process
+            template: python-process-wt
+            arguments:
+              parameters:
+                - name: git-repo
+                  value: "https://github.com/Funathon-Duvel/Kasteel.git"
+                - name: project
+                  value: Kasteel
+                - name: git-revision
+                  value: gh-pages
+                - name: relative-path-to-script
+                  value: "Python-Scripts/main.py"
+                - name: input-file
+                  value: "/mnt/tmp/listings-{{inputs.parameters.zone}}.csv"
+                - name: output-file
+                  value: "/mnt/tmp/{{inputs.parameters.zone}}.csv"
+                - name: args
+                  value: "{{inputs.parameters.codeCom}}"
+
+        - - name: save-to-minio
+            template: save-to-minio-wt
+            arguments:
+              parameters:
+                - name: file-name-to-save
+                  value: "{{inputs.parameters.zone}}.csv"
+
+      ####################################################################################################################
+      #################### task template for implementing the logic of each task of the pipeline #########################
+      ####################################################################################################################
 
       - name: init-workdir-wt
         container:
@@ -136,7 +171,7 @@ spec:
             # Check out the master branch of the argo repo and place it at /src
             # revision can be anything that git checkout accepts: branch, commit, tag, etc.
             - name: code
-              path: "/mnt/code/{{inputs.parameters.project}}"
+              path: "/mnt/code/{{inputs.parameters.args}}/{{inputs.parameters.project}}"
               git:
                 repo: "{{inputs.parameters.git-repo}}"
                 revision: "{{inputs.parameters.git-revision}}"
@@ -150,7 +185,7 @@ spec:
             - name: OUTPUT_FILE
               value: "{{inputs.parameters.output-file}}"
           command: [sh, -c]            
-          args: ["python3 /mnt/code/{{inputs.parameters.project}}/{{inputs.parameters.relative-path-to-script}}"]
+          args: ["python3 /mnt/code/{{inputs.parameters.args}}/{{inputs.parameters.project}}/{{inputs.parameters.relative-path-to-script}}"]
           volumeMounts:
             - name: workflow-tmp
               mountPath: /mnt
@@ -166,7 +201,7 @@ spec:
               s3:
                 endpoint: minio.lab.sspcloud.fr
                 bucket: argo-artifacts
-                key: funathon/paris.csv
+                key: funathon/{{inputs.parameters.file-name-to-save}}
                 accessKeySecret:
                   name: my-s3-credentials
                   key: accessKey
