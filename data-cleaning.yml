@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: karmeliet-workflow
+  generateName: karmeliet-workflow-data-cleaning
   namespace: gr-funathon-duvel
 spec:
     entrypoint: main
