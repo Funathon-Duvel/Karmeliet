@@ -63,9 +63,9 @@ spec:
       - name: process-file-wt
         inputs:
           parameters:
+            - name: url
             - name: zone
             - name: codeCom
-            - name: url
         steps:
         - - name: init-workdir
             template: init-workdir-wt
@@ -94,17 +94,17 @@ spec:
               parameters:
                 - name: git-repo
                   value: "https://github.com/Funathon-Duvel/Kasteel.git"
-                - name: project
-                  value: Kasteel
                 - name: git-revision
                   value: gh-pages
+                - name: project
+                  value: Kasteel
                 - name: relative-path-to-script
                   value: "Python-Scripts/main.py"
                 - name: input-file
                   value: "/mnt/tmp/listings-{{inputs.parameters.zone}}.csv"
                 - name: output-file
                   value: "/mnt/tmp/{{inputs.parameters.zone}}.csv"
-                - name: args
+                - name: args #Optionnal env for python process, here codeCom value
                   value: "{{inputs.parameters.codeCom}}"
 
         - - name: save-to-minio
@@ -161,8 +161,8 @@ spec:
         inputs:
           parameters:
             - name: git-repo
-            - name: project
             - name: git-revision
+            - name: project
             - name: relative-path-to-script
             - name: input-file
             - name: output-file
@@ -178,12 +178,12 @@ spec:
         container:
           image: funathonduvel/chimay
           env:
-            - name: ARGS
-              value: "{{inputs.parameters.args}}"
             - name: INPUT_FILE
               value: "{{inputs.parameters.input-file}}"
             - name: OUTPUT_FILE
               value: "{{inputs.parameters.output-file}}"
+            - name: ARGS
+              value: "{{inputs.parameters.args}}"
           command: [sh, -c]            
           args: ["python3 /mnt/code/{{inputs.parameters.args}}/{{inputs.parameters.project}}/{{inputs.parameters.relative-path-to-script}}"]
           volumeMounts:
